@@ -14,6 +14,8 @@
 
 // Matter Manager
 #include <Matter.h>
+#include <type_traits>
+#include <utility>
 #if !CONFIG_ENABLE_CHIPOBLE
 // if the device can be commissioned using BLE, WiFi is not used - save flash space
 #include <WiFi.h>
@@ -106,11 +108,33 @@ void setup() {
   }
 }
 
+namespace {
+template <typename MatterT, typename = void>
+struct HasLoopMethod : std::false_type {};
+
+template <typename MatterT>
+struct HasLoopMethod<MatterT, std::void_t<decltype(std::declval<MatterT &>().loop())>> : std::true_type {};
+
+template <typename MatterT>
+void PumpMatterStack(MatterT &matter) {
+  if constexpr (HasLoopMethod<MatterT>::value) {
+    // Recent Arduino Matter releases provide a loop() helper that pumps the
+    // stack to keep CASE sessions progressing and free PacketBuffers.
+    matter.loop();
+  } else {
+    // Older releases run the Matter event loop on their own tasks. Yielding to
+    // the scheduler ensures those tasks get CPU time so buffers can be
+    // reclaimed between iterations.
+    delay(1);
+  }
+}
+}  // namespace
+
 void loop() {
   // Allow the Matter stack to process internal work such as CASE sessions and
   // memory housekeeping. Without this call the stack can run out of buffers
   // which prevents the node from completing the commissioning handshake.
-  Matter.loop();
+  PumpMatterStack(Matter);
 
   // Check Matter Plugin Commissioning state, which may change during execution of loop()
   if (!Matter.isDeviceCommissioned()) {
