@@ -107,6 +107,11 @@ void setup() {
 }
 
 void loop() {
+  // Allow the Matter stack to process internal work such as CASE sessions and
+  // memory housekeeping. Without this call the stack can run out of buffers
+  // which prevents the node from completing the commissioning handshake.
+  Matter.loop();
+
   // Check Matter Plugin Commissioning state, which may change during execution of loop()
   if (!Matter.isDeviceCommissioned()) {
     Serial.println("");
