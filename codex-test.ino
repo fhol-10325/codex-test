@@ -43,6 +43,9 @@ const uint8_t onoffPin = 2;  // Set your pin here - usually a power relay
 #warning "Do not forget to set the Power Relay pin"
 #endif
 
+// Dedicated status LED that blinks when the Matter callback is invoked
+const uint8_t togglePin = 2;
+
 // board USER BUTTON pin necessary for Decommissioning
 const uint8_t buttonPin = BOOT_PIN;  // Set your pin here. Using BOOT Button.
 
@@ -59,6 +62,11 @@ bool setPluginOnOff(bool state) {
   } else {
     digitalWrite(onoffPin, LOW);
   }
+  // Blink the status LED off for 1 second to indicate a Matter state change
+  uint8_t previousToggleState = digitalRead(togglePin);
+  digitalWrite(togglePin, LOW);
+  delay(1000);
+  digitalWrite(togglePin, previousToggleState);
   // store last OnOff state for when the Plugin is restarted / power goes off
   matterPref.putBool(onOffPrefKey, state);
   // This callback must return the success state to Matter core
@@ -70,6 +78,9 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   // Initialize the Power Relay (plugin) GPIO
   pinMode(onoffPin, OUTPUT);
+  // Initialize the toggle LED pin
+  pinMode(togglePin, OUTPUT);
+  digitalWrite(togglePin, HIGH);
 
   Serial.begin(115200);
 
