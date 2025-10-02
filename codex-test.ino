@@ -110,14 +110,29 @@ bool button_long_press_handled = false;        // tracks whether the long-press 
 const uint32_t decommissioningTimeout = 5000;  // keep the button pressed for 5s, or longer, to decommission
 const uint32_t reopenCommissioningTimeout = 1000;  // 1s press re-opens the commissioning window for multi-admin
 
+namespace {
+constexpr uint32_t kRelayPulseDurationMs = 1000;
+bool relayPulseActive = false;
+uint32_t relayPulseStartMs = 0;
+
+void StartRelayPulse() {
+  relayPulseStartMs = millis();
+  relayPulseActive = true;
+  digitalWrite(onoffPin, LOW);
+}
+
+void ServiceRelayPulse() {
+  if (relayPulseActive && (millis() - relayPulseStartMs >= kRelayPulseDurationMs)) {
+    relayPulseActive = false;
+    digitalWrite(onoffPin, HIGH);
+  }
+}
+}  // namespace
+
 // Matter Protocol Endpoint Callback
 bool setPluginOnOff(bool state) {
   Serial.printf("User Callback :: New Plugin State = %s\r\n", state ? "ON" : "OFF");
-  if (state) {
-    digitalWrite(onoffPin, HIGH);
-  } else {
-    digitalWrite(onoffPin, LOW);
-  }
+  StartRelayPulse();
   // store last OnOff state for when the Plugin is restarted / power goes off
   matterPref.putBool(onOffPrefKey, state);
   // This callback must return the success state to Matter core
@@ -129,6 +144,7 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   // Initialize the Power Relay (plugin) GPIO
   pinMode(onoffPin, OUTPUT);
+  digitalWrite(onoffPin, HIGH);
 
   Serial.begin(115200);
 
@@ -183,6 +199,7 @@ void loop() {
   // memory housekeeping. Without this call the stack can run out of buffers
   // which prevents the node from completing the commissioning handshake.
   PumpMatterStack(Matter);
+  ServiceRelayPulse();
 
   // Check Matter Plugin Commissioning state, which may change during execution of loop()
   if (!Matter.isDeviceCommissioned()) {
@@ -198,6 +215,7 @@ void loop() {
     while (!Matter.isDeviceCommissioned()) {
       PumpMatterStack(Matter);
       EnsureCommissioningWindowOpen();
+      ServiceRelayPulse();
       delay(100);
       if ((timeCount++ % 50) == 0) {  // 50*100ms = 5 sec
         Serial.println("Matter Node not commissioned yet. Waiting for commissioning.");
