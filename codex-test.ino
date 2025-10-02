@@ -19,6 +19,7 @@
 #include <inttypes.h>
 #include <lib/core/CHIPError.h>
 #include <lib/support/TimeUtils.h>
+#include <platform/PlatformManager.h>
 #include <type_traits>
 #include <utility>
 #if !CONFIG_ENABLE_CHIPOBLE
@@ -48,7 +49,7 @@ void PumpMatterStack(MatterT &matter) {
   }
 }
 
-void EnsureCommissioningWindowOpen() {
+void OpenCommissioningWindowWork(intptr_t) {
   chip::CommissioningWindowManager &commissionMgr = chip::Server::GetInstance().GetCommissioningWindowManager();
   if (commissionMgr.IsCommissioningWindowOpen()) {
     return;
@@ -73,6 +74,16 @@ void EnsureCommissioningWindowOpen() {
 #else
     Serial.println("Commissioning window opened over IP.");
 #endif
+  }
+}
+
+void EnsureCommissioningWindowOpen() {
+  const CHIP_ERROR scheduleErr = chip::DeviceLayer::PlatformMgr().ScheduleWork(OpenCommissioningWindowWork, 0);
+  if (scheduleErr != CHIP_NO_ERROR) {
+    Serial.printf(
+      "Failed to schedule commissioning window open (err 0x%08" PRIX32 ")\r\n",
+      static_cast<uint32_t>(scheduleErr.AsInteger())
+    );
   }
 }
 }  // namespace
@@ -125,6 +136,20 @@ void ServiceRelayPulse() {
   if (relayPulseActive && (millis() - relayPulseStartMs >= kRelayPulseDurationMs)) {
     relayPulseActive = false;
     digitalWrite(onoffPin, HIGH);
+  }
+}
+
+void DecommissionWork(intptr_t) {
+  Matter.decommission();
+}
+
+void RequestDecommission() {
+  const CHIP_ERROR scheduleErr = chip::DeviceLayer::PlatformMgr().ScheduleWork(DecommissionWork, 0);
+  if (scheduleErr != CHIP_NO_ERROR) {
+    Serial.printf(
+      "Failed to schedule decommission (err 0x%08" PRIX32 ")\r\n",
+      static_cast<uint32_t>(scheduleErr.AsInteger())
+    );
   }
 }
 }  // namespace
@@ -258,7 +283,7 @@ void loop() {
         "Decommissioning the Plugin Matter Accessory. It shall be commissioned again."
       );
       OnOffPlugin.setOnOff(false);  // turn the plugin off
-      Matter.decommission();
+      RequestDecommission();
       button_long_press_handled = true;
       button_time_stamp = now;  // avoid running decommissioning again while still pressed
       digitalWrite(statusPin, LOW);
