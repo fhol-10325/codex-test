@@ -61,7 +61,7 @@ void EnsureCommissioningWindowOpen() {
   constexpr auto kAdvertisementMode = chip::CommissioningWindowAdvertisement::kDnssdOnly;
 #endif
 
-  const chip::CHIP_ERROR err = commissionMgr.OpenBasicCommissioningWindow(kTimeout, kAdvertisementMode);
+  const CHIP_ERROR err = commissionMgr.OpenBasicCommissioningWindow(kTimeout, kAdvertisementMode);
   if (err != CHIP_NO_ERROR) {
     Serial.printf(
       "Failed to open commissioning window (err 0x%08" PRIX32 ")\r\n",
