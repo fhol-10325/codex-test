@@ -129,13 +129,13 @@ uint32_t relayPulseStartMs = 0;
 void StartRelayPulse() {
   relayPulseStartMs = millis();
   relayPulseActive = true;
-  digitalWrite(onoffPin, LOW);
+  digitalWrite(onoffPin, HIGH);
 }
 
 void ServiceRelayPulse() {
   if (relayPulseActive && (millis() - relayPulseStartMs >= kRelayPulseDurationMs)) {
     relayPulseActive = false;
-    digitalWrite(onoffPin, HIGH);
+    digitalWrite(onoffPin, LOW);
   }
 }
 
@@ -161,7 +161,7 @@ bool setPluginOnOff(bool state) {
     StartRelayPulse();
   } else {
     // During startup we restore the steady-state without pulsing the relay output.
-    digitalWrite(onoffPin, HIGH);
+    digitalWrite(onoffPin, LOW);
   }
   // store last OnOff state for when the Plugin is restarted / power goes off
   matterPref.putBool(onOffPrefKey, state);
@@ -174,7 +174,7 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   // Initialize the Power Relay (plugin) GPIO
   pinMode(onoffPin, OUTPUT);
-  digitalWrite(onoffPin, HIGH);
+  digitalWrite(onoffPin, LOW);
   pinMode(statusPin, OUTPUT);
   digitalWrite(statusPin, LOW);
 
