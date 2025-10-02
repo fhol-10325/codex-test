@@ -92,13 +92,11 @@ const char *password = "your-password";  // Change this to your WiFi password
 Preferences matterPref;
 const char *onOffPrefKey = "OnOff";
 
-// set your board Power Relay pin here - this example uses the built-in LED for easy visualization
-#ifdef LED_BUILTIN
-const uint8_t onoffPin = LED_BUILTIN;
-#else
-const uint8_t onoffPin = 2;  // Set your pin here - usually a power relay
-#warning "Do not forget to set the Power Relay pin"
-#endif
+// Set your board Power Relay pin here. Pin 2 drives the external relay.
+const uint8_t onoffPin = 2;
+
+// Status indicator pin to drive an LED once the node is fully ready.
+const uint8_t statusPin = 4;
 
 // board USER BUTTON pin necessary for Decommissioning
 const uint8_t buttonPin = BOOT_PIN;  // Set your pin here. Using BOOT Button.
@@ -152,6 +150,8 @@ void setup() {
   // Initialize the Power Relay (plugin) GPIO
   pinMode(onoffPin, OUTPUT);
   digitalWrite(onoffPin, HIGH);
+  pinMode(statusPin, OUTPUT);
+  digitalWrite(statusPin, LOW);
 
   Serial.begin(115200);
 
@@ -186,6 +186,7 @@ void setup() {
     Serial.printf("Initial state: %s\r\n", OnOffPlugin.getOnOff() ? "ON" : "OFF");
     OnOffPlugin.updateAccessory();  // configure the Plugin based on initial state
     relayPulsingEnabled = true;
+    digitalWrite(statusPin, HIGH);
   } else {
 #if CONFIG_ENABLE_CHIPOBLE
     Serial.println("Opening commissioning window over BLE...");
@@ -212,6 +213,7 @@ void loop() {
   // Check Matter Plugin Commissioning state, which may change during execution of loop()
   if (!Matter.isDeviceCommissioned()) {
     relayPulsingEnabled = false;
+    digitalWrite(statusPin, LOW);
     EnsureCommissioningWindowOpen();
     Serial.println("");
     Serial.println("Matter Node is not commissioned yet.");
@@ -225,6 +227,7 @@ void loop() {
       PumpMatterStack(Matter);
       EnsureCommissioningWindowOpen();
       ServiceRelayPulse();
+      digitalWrite(statusPin, LOW);
       delay(100);
       if ((timeCount++ % 50) == 0) {  // 50*100ms = 5 sec
         Serial.println("Matter Node not commissioned yet. Waiting for commissioning.");
@@ -234,6 +237,7 @@ void loop() {
     OnOffPlugin.updateAccessory();  // configure the Plugin based on initial state
     Serial.println("Matter Node is commissioned and connected to the network. Ready for use.");
     relayPulsingEnabled = true;
+    digitalWrite(statusPin, HIGH);
   }
 
   // Check if the button has been pressed
@@ -257,6 +261,7 @@ void loop() {
       Matter.decommission();
       button_long_press_handled = true;
       button_time_stamp = now;  // avoid running decommissioning again while still pressed
+      digitalWrite(statusPin, LOW);
     }
   }
 
@@ -271,5 +276,9 @@ void loop() {
       }
       EnsureCommissioningWindowOpen();
     }
+  }
+
+  if (!Matter.isDeviceCommissioned()) {
+    digitalWrite(statusPin, LOW);
   }
 }
