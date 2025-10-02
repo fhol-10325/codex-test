@@ -110,6 +110,8 @@ bool button_long_press_handled = false;        // tracks whether the long-press 
 const uint32_t decommissioningTimeout = 5000;  // keep the button pressed for 5s, or longer, to decommission
 const uint32_t reopenCommissioningTimeout = 1000;  // 1s press re-opens the commissioning window for multi-admin
 
+bool relayPulsingEnabled = false;
+
 namespace {
 constexpr uint32_t kRelayPulseDurationMs = 1000;
 bool relayPulseActive = false;
@@ -132,7 +134,12 @@ void ServiceRelayPulse() {
 // Matter Protocol Endpoint Callback
 bool setPluginOnOff(bool state) {
   Serial.printf("User Callback :: New Plugin State = %s\r\n", state ? "ON" : "OFF");
-  StartRelayPulse();
+  if (relayPulsingEnabled) {
+    StartRelayPulse();
+  } else {
+    // During startup we restore the steady-state without pulsing the relay output.
+    digitalWrite(onoffPin, HIGH);
+  }
   // store last OnOff state for when the Plugin is restarted / power goes off
   matterPref.putBool(onOffPrefKey, state);
   // This callback must return the success state to Matter core
@@ -178,6 +185,7 @@ void setup() {
     Serial.println("Matter Node is commissioned and connected to the network. Ready for use.");
     Serial.printf("Initial state: %s\r\n", OnOffPlugin.getOnOff() ? "ON" : "OFF");
     OnOffPlugin.updateAccessory();  // configure the Plugin based on initial state
+    relayPulsingEnabled = true;
   } else {
 #if CONFIG_ENABLE_CHIPOBLE
     Serial.println("Opening commissioning window over BLE...");
@@ -203,6 +211,7 @@ void loop() {
 
   // Check Matter Plugin Commissioning state, which may change during execution of loop()
   if (!Matter.isDeviceCommissioned()) {
+    relayPulsingEnabled = false;
     EnsureCommissioningWindowOpen();
     Serial.println("");
     Serial.println("Matter Node is not commissioned yet.");
@@ -224,6 +233,7 @@ void loop() {
     Serial.printf("Initial state: %s\r\n", OnOffPlugin.getOnOff() ? "ON" : "OFF");
     OnOffPlugin.updateAccessory();  // configure the Plugin based on initial state
     Serial.println("Matter Node is commissioned and connected to the network. Ready for use.");
+    relayPulsingEnabled = true;
   }
 
   // Check if the button has been pressed
