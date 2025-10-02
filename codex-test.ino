@@ -14,6 +14,11 @@
 
 // Matter Manager
 #include <Matter.h>
+#include <app/server/CommissioningWindowManager.h>
+#include <app/server/Server.h>
+#include <inttypes.h>
+#include <lib/core/CHIPError.h>
+#include <lib/support/TimeUtils.h>
 #include <type_traits>
 #include <utility>
 #if !CONFIG_ENABLE_CHIPOBLE
@@ -21,6 +26,56 @@
 #include <WiFi.h>
 #endif
 #include <Preferences.h>
+
+namespace {
+template <typename MatterT, typename = void>
+struct HasLoopMethod : std::false_type {};
+
+template <typename MatterT>
+struct HasLoopMethod<MatterT, std::void_t<decltype(std::declval<MatterT &>().loop())>> : std::true_type {};
+
+template <typename MatterT>
+void PumpMatterStack(MatterT &matter) {
+  if constexpr (HasLoopMethod<MatterT>::value) {
+    // Recent Arduino Matter releases provide a loop() helper that pumps the
+    // stack to keep CASE sessions progressing and free PacketBuffers.
+    matter.loop();
+  } else {
+    // Older releases run the Matter event loop on their own tasks. Yielding to
+    // the scheduler ensures those tasks get CPU time so buffers can be
+    // reclaimed between iterations.
+    delay(1);
+  }
+}
+
+void EnsureCommissioningWindowOpen() {
+  chip::CommissioningWindowManager &commissionMgr = chip::Server::GetInstance().GetCommissioningWindowManager();
+  if (commissionMgr.IsCommissioningWindowOpen()) {
+    return;
+  }
+
+  constexpr auto kTimeout = chip::System::Clock::Seconds16(300);
+#if CONFIG_ENABLE_CHIPOBLE
+  constexpr auto kAdvertisementMode = chip::CommissioningWindowAdvertisement::kAllSupported;
+#else
+  constexpr auto kAdvertisementMode = chip::CommissioningWindowAdvertisement::kDnssdOnly;
+#endif
+
+  const chip::CHIP_ERROR err = commissionMgr.OpenBasicCommissioningWindow(kTimeout, kAdvertisementMode);
+  if (err != CHIP_NO_ERROR) {
+    Serial.printf(
+      "Failed to open commissioning window (err 0x%08" PRIX32 ")\r\n",
+      static_cast<uint32_t>(err.AsInteger())
+    );
+  } else {
+#if CONFIG_ENABLE_CHIPOBLE
+    Serial.println("Commissioning window opened over BLE (and IP).");
+#else
+    Serial.println("Commissioning window opened over IP.");
+#endif
+  }
+}
+}  // namespace
 
 // List of Matter Endpoints for this Node
 // On/Off Plugin Endpoint
@@ -105,30 +160,17 @@ void setup() {
     Serial.println("Matter Node is commissioned and connected to the network. Ready for use.");
     Serial.printf("Initial state: %s\r\n", OnOffPlugin.getOnOff() ? "ON" : "OFF");
     OnOffPlugin.updateAccessory();  // configure the Plugin based on initial state
-  }
-}
-
-namespace {
-template <typename MatterT, typename = void>
-struct HasLoopMethod : std::false_type {};
-
-template <typename MatterT>
-struct HasLoopMethod<MatterT, std::void_t<decltype(std::declval<MatterT &>().loop())>> : std::true_type {};
-
-template <typename MatterT>
-void PumpMatterStack(MatterT &matter) {
-  if constexpr (HasLoopMethod<MatterT>::value) {
-    // Recent Arduino Matter releases provide a loop() helper that pumps the
-    // stack to keep CASE sessions progressing and free PacketBuffers.
-    matter.loop();
   } else {
-    // Older releases run the Matter event loop on their own tasks. Yielding to
-    // the scheduler ensures those tasks get CPU time so buffers can be
-    // reclaimed between iterations.
-    delay(1);
+#if CONFIG_ENABLE_CHIPOBLE
+    Serial.println("Opening commissioning window over BLE...");
+#else
+    Serial.println(
+      "BLE commissioning is disabled in this build; falling back to IP-only discovery."
+    );
+#endif
+    EnsureCommissioningWindowOpen();
   }
 }
-}  // namespace
 
 void loop() {
   // Allow the Matter stack to process internal work such as CASE sessions and
@@ -138,6 +180,7 @@ void loop() {
 
   // Check Matter Plugin Commissioning state, which may change during execution of loop()
   if (!Matter.isDeviceCommissioned()) {
+    EnsureCommissioningWindowOpen();
     Serial.println("");
     Serial.println("Matter Node is not commissioned yet.");
     Serial.println("Initiate the device discovery in your Matter environment.");
@@ -147,6 +190,8 @@ void loop() {
     // waits for Matter Plugin Commissioning.
     uint32_t timeCount = 0;
     while (!Matter.isDeviceCommissioned()) {
+      PumpMatterStack(Matter);
+      EnsureCommissioningWindowOpen();
       delay(100);
       if ((timeCount++ % 50) == 0) {  // 50*100ms = 5 sec
         Serial.println("Matter Node not commissioned yet. Waiting for commissioning.");
