@@ -106,7 +106,9 @@ const uint8_t buttonPin = BOOT_PIN;  // Set your pin here. Using BOOT Button.
 // Button control
 uint32_t button_time_stamp = 0;                // debouncing control
 bool button_state = false;                     // false = released | true = pressed
+bool button_long_press_handled = false;        // tracks whether the long-press action has already run
 const uint32_t decommissioningTimeout = 5000;  // keep the button pressed for 5s, or longer, to decommission
+const uint32_t reopenCommissioningTimeout = 1000;  // 1s press re-opens the commissioning window for multi-admin
 
 // Matter Protocol Endpoint Callback
 bool setPluginOnOff(bool state) {
@@ -170,6 +172,10 @@ void setup() {
 #endif
     EnsureCommissioningWindowOpen();
   }
+
+  Serial.println(
+    "Hold the user button for ~1s to reopen the commissioning window, or for ~5s to decommission."
+  );
 }
 
 void loop() {
@@ -203,23 +209,39 @@ void loop() {
   }
 
   // Check if the button has been pressed
-  if (digitalRead(buttonPin) == LOW && !button_state) {
+  const bool buttonPressed = digitalRead(buttonPin) == LOW;
+  const uint32_t now = millis();
+
+  if (buttonPressed && !button_state) {
     // deals with button debouncing
-    button_time_stamp = millis();  // record the time while the button is pressed.
-    button_state = true;           // pressed.
+    button_time_stamp = now;  // record the time while the button is pressed.
+    button_state = true;      // pressed.
+    button_long_press_handled = false;
   }
 
-  // Onboard User Button is used to decommission the Matter Node
-  if (button_state && digitalRead(buttonPin) == HIGH) {
+  if (button_state && buttonPressed && !button_long_press_handled) {
+    const uint32_t pressDuration = now - button_time_stamp;
+    if (pressDuration >= decommissioningTimeout) {
+      Serial.println(
+        "Decommissioning the Plugin Matter Accessory. It shall be commissioned again."
+      );
+      OnOffPlugin.setOnOff(false);  // turn the plugin off
+      Matter.decommission();
+      button_long_press_handled = true;
+      button_time_stamp = now;  // avoid running decommissioning again while still pressed
+    }
+  }
+
+  if (!buttonPressed && button_state) {
     button_state = false;  // released
-  }
-
-  // Onboard User Button is kept pressed for longer than 5 seconds in order to decommission matter node
-  uint32_t time_diff = millis() - button_time_stamp;
-  if (button_state && time_diff > decommissioningTimeout) {
-    Serial.println("Decommissioning the Plugin Matter Accessory. It shall be commissioned again.");
-    OnOffPlugin.setOnOff(false);  // turn the plugin off
-    Matter.decommission();
-    button_time_stamp = millis();  // avoid running decommissining again, reboot takes a second or so
+    const uint32_t pressDuration = now - button_time_stamp;
+    if (!button_long_press_handled && pressDuration >= reopenCommissioningTimeout) {
+      if (Matter.isDeviceCommissioned()) {
+        Serial.println(
+          "Re-opening the commissioning window to add another Matter administrator."
+        );
+      }
+      EnsureCommissioningWindowOpen();
+    }
   }
 }
